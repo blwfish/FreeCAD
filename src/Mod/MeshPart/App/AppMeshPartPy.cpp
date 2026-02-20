@@ -176,6 +176,46 @@ private:
         }
     }
 
+    // Keyword-argument methods (e.g. meshFromShape) dispatch through this path.
+    // Must mirror invoke_method_varargs exception handling — without this override
+    // any C++ exception (e.g. BRepMesh_IncrementalMesh throwing on bad geometry)
+    // propagates uncaught and calls std::terminate, crashing FreeCAD.
+    // See: https://github.com/FreeCAD/FreeCAD/issues/27752
+    Py::Object invoke_method_keyword(void *method_def,
+                                     const Py::Tuple &args,
+                                     const Py::Dict &kwds) override
+    {
+        try {
+            return Py::ExtensionModule<Module>::invoke_method_keyword(method_def, args, kwds);
+        }
+        catch (const Standard_Failure &e) {
+            std::string str;
+            Standard_CString msg = e.GetMessageString();
+            str += typeid(e).name();
+            str += " ";
+            if (msg) {str += msg;}
+            else     {str += "No OCCT Exception Message";}
+            Base::Console().error("%s\n", str.c_str());
+            throw Py::Exception(Base::PyExc_FC_GeneralError, str);
+        }
+        catch (const Base::Exception &e) {
+            std::string str;
+            str += "FreeCAD exception thrown (";
+            str += e.what();
+            str += ")";
+            e.reportException();
+            throw Py::RuntimeError(str);
+        }
+        catch (const std::exception &e) {
+            std::string str;
+            str += "C++ exception thrown (";
+            str += e.what();
+            str += ")";
+            Base::Console().error("%s\n", str.c_str());
+            throw Py::RuntimeError(str);
+        }
+    }
+
     Py::Object loftOnCurve(const Py::Tuple& args)
     {
         Part::TopoShapePy   *pcObject;

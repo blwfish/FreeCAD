@@ -26,6 +26,7 @@
 
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRepTools.hxx>
+#include <Standard_Failure.hxx>
 #include <Standard_Version.hxx>
 #include <TopoDS_Shape.hxx>
 
@@ -228,7 +229,19 @@ Mesh::MeshObject* Mesher::createStandard() const
 {
     if (!shape.IsNull()) {
         BRepTools::Clean(shape);
-        BRepMesh_IncrementalMesh aMesh(shape, deflection, relative, angularDeflection);
+        // BRepMesh_IncrementalMesh can throw Standard_Failure on degenerate or
+        // mesh-derived shapes (e.g. shells created via makeShapeFromMesh).
+        // Catch and re-throw as Base::RuntimeError so callers get a Python
+        // exception instead of std::terminate. See: GH issue #27752
+        try {
+            BRepMesh_IncrementalMesh aMesh(shape, deflection, relative, angularDeflection);
+        }
+        catch (const Standard_Failure& e) {
+            Standard_CString msg = e.GetMessageString();
+            std::string err = "BRepMesh failed: ";
+            err += (msg && *msg) ? msg : "no message";
+            throw Base::RuntimeError(err.c_str());
+        }
     }
 
     std::vector<Part::TopoShape::Domain> domains;
