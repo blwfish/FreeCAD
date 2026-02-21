@@ -45,6 +45,7 @@
 #include <QRegularExpressionMatch>
 #include <QScreen>
 #include <QSettings>
+#include <QShortcut>
 #include <QSignalMapper>
 #include <QStatusBar>
 #include <QThread>
@@ -85,6 +86,7 @@
 #include <TaskView/TaskView.h>
 
 #include "MainWindow.h"
+#include "OperationCancel.h"
 #include "Action.h"
 #include "Assistant.h"
 #include "BitmapFactory.h"
@@ -494,6 +496,18 @@ MainWindow::MainWindow(QWidget* parent, Qt::WindowFlags f)
     // accept drops on the window, get handled in dropEvent, dragEnterEvent
     setAcceptDrops(true);
 
+    // Keyboard shortcut to cancel the currently running long C++ operation
+    // (e.g. Check Geometry or a large boolean fuse).  Ctrl+. is the
+    // conventional "interrupt" shortcut in Python/Jupyter and is otherwise
+    // unused in FreeCAD.  ApplicationShortcut fires even when the progress
+    // dialog has focus.
+    auto* cancelShortcut =
+        new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_Period), this);
+    cancelShortcut->setContext(Qt::ApplicationShortcut);
+    connect(cancelShortcut, &QShortcut::activated, this, []() {
+        MainWindow::requestCancelLongOperation();
+    });
+
     statusBar()->showMessage(tr("Ready"), 2001);
 }
 
@@ -508,6 +522,11 @@ MainWindow* MainWindow::getInstance()
 {
     // MainWindow has a public constructor
     return instance;
+}
+
+void MainWindow::requestCancelLongOperation()
+{
+    Gui::OperationCancel::request();
 }
 
 // Helper function to update dock widget according to the user parameter

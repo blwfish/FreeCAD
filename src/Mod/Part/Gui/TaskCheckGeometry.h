@@ -24,6 +24,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <tuple>
 #include <QAbstractItemModel>
@@ -233,10 +234,16 @@ public:
 
     Standard_Boolean UserBreak() override;
 
+    /// Signal cancellation from outside (keyboard shortcut, etc.)
+    /// Safe to call from the GUI thread at any time.
+    static void requestCancel();
+
 private:
     int steps;
     bool canceled;
     QElapsedTimer time;
     QProgressDialog* myProgress;
+
+    static std::atomic<bool> globalCancelRequested;
 };
 }  // namespace PartGui
