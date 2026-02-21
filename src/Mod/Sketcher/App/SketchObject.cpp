@@ -9694,6 +9694,50 @@ void SketchObject::rebuildExternalGeometry(std::optional<ExternalToAdd> extToAdd
 
     // Check for any missing references
     bool hasError = false;
+
+    // Decode a TNP external-geometry reference string into a human-readable description.
+    // Ref format: "ObjectName.encoded_element_name"
+    //   TNP hash names end with ",E"/",F"/",V" for Edge/Face/Vertex.
+    //   Simple names end with "Edge3", "Face7", "Vertex1", optionally prefixed.
+    auto decodeExternalRef = [](const std::string& ref) -> std::string {
+        auto dotPos = ref.find('.');
+        if (dotPos == std::string::npos || dotPos == 0)
+            return std::string("'") + ref + "'";
+
+        const std::string objName = ref.substr(0, dotPos);
+        const std::string elemName = ref.substr(dotPos + 1);
+
+        // TNP hash names: type is the last char, preceded by ','
+        // e.g. ";#61cd:4;:H1137,E" → Edge, ";:H11e9:7,F" → Face, ";:H...,V" → Vertex
+        if (elemName.size() >= 2 && elemName[elemName.size() - 2] == ',') {
+            const char t = elemName.back();
+            const char* typeName =
+                (t == 'E') ? "Edge" : (t == 'F') ? "Face" : (t == 'V') ? "Vertex" : nullptr;
+            if (typeName)
+                return std::string(typeName) + " in '" + objName + "'";
+        }
+
+        // Simple element names: ends with Face/Edge/Vertex + digits (possibly prefixed)
+        // e.g. "Face3", "Edge12", "Part.Face3"
+        for (const char* typeName : {"Face", "Edge", "Vertex"}) {
+            const std::size_t tlen = std::strlen(typeName);
+            auto pos = elemName.rfind(typeName);
+            if (pos == std::string::npos)
+                continue;
+            const auto afterType = pos + tlen;
+            if (afterType >= elemName.size())
+                continue;
+            bool allDigits = true;
+            for (auto i = afterType; i < elemName.size() && allDigits; ++i)
+                allDigits = std::isdigit(static_cast<unsigned char>(elemName[i]));
+            if (allDigits)
+                return std::string(typeName) + " " + elemName.substr(afterType)
+                    + " in '" + objName + "'";
+        }
+
+        return "geometry in '" + objName + "'";
+    };
+
     for(auto geo : geoms) {
         auto egf = ExternalGeometryFacade::getFacade(geo);
         egf->setFlag(ExternalGeometryExtension::Sync,false);
@@ -9701,7 +9745,8 @@ void SketchObject::rebuildExternalGeometry(std::optional<ExternalToAdd> extToAdd
             continue;
         if(!refSet.count(egf->getRef())) {
             FC_ERR( "External geometry " << getFullName() << ".e" << egf->getId()
-                    << " missing reference: " << egf->getRef());
+                    << " missing reference to " << decodeExternalRef(egf->getRef()));
+            FC_LOG( "  (raw ref: " << egf->getRef() << ")");  // full hash at LOG level for debugging
             hasError = true;
             egf->setFlag(ExternalGeometryExtension::Missing,true);
         } else {
