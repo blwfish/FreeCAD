@@ -172,6 +172,13 @@ public:
     //@{
     /** Gets the one and only instance. */
     static MainWindow* getInstance();
+    /**
+     * Request cancellation of the currently running long C++ operation
+     * (Check Geometry, boolean fuse, etc.).  Safe to call from any Qt slot
+     * or keyboard shortcut handler.  The running operation's UserBreak()
+     * hook will detect the request on its next poll (≤ 200 ms).
+     */
+    static void requestCancelLongOperation();
     /** Starts the splasher at startup. */
     void startSplasher();
     /** Stops the splasher after startup. */

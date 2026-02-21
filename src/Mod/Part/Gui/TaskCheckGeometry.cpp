@@ -62,6 +62,7 @@
 #include <Gui/BitmapFactory.h>
 #include <Gui/Document.h>
 #include <Gui/MainWindow.h>
+#include <Gui/OperationCancel.h>
 #include <Gui/Selection/Selection.h>
 #include <Gui/ViewProvider.h>
 #include <Gui/WaitCursor.h>
@@ -71,6 +72,9 @@
 
 
 using namespace PartGui;
+
+// Static member definition
+std::atomic<bool> BOPProgressIndicator::globalCancelRequested{false};
 
 QVector<QString> buildShapeEnumVector()
 {
@@ -1671,6 +1675,9 @@ BOPProgressIndicator::BOPProgressIndicator(const QString& title, QWidget* parent
     myProgress = new QProgressDialog(parent);
     myProgress->setWindowTitle(title);
     myProgress->setAttribute(Qt::WA_DeleteOnClose);
+    // Show the dialog immediately when the operation starts rather than waiting
+    // for Qt's default 4-second minimumDuration delay.
+    myProgress->setMinimumDuration(0);
 }
 
 BOPProgressIndicator::~BOPProgressIndicator()
@@ -1695,30 +1702,48 @@ void BOPProgressIndicator::Reset()
     steps = 0;
     canceled = false;
 
+    // Clear any pending global cancel from a previous run.
+    globalCancelRequested = false;
+    Gui::OperationCancel::clear();
+
     time.start();
 
     myProgress->setRange(0, 0);
     myProgress->setValue(0);
+    // Force the dialog visible now.  Without this the dialog may not appear
+    // until Qt's minimumDuration elapses (even with setMinimumDuration(0) the
+    // dialog only shows after the first setValue call processes through the
+    // event loop, which never happens if processEvents isn't called).
+    myProgress->show();
 }
 
 Standard_Boolean BOPProgressIndicator::UserBreak()
 {
     QThread* currentThread = QThread::currentThread();
     if (currentThread == myProgress->thread()) {
-        // this is needed to check the status outside BOPAlgo_ArgumentAnalyzer
+        // Only perform GUI and cancel checks from the GUI thread.
         //
         // Hint: We must make sure to do this only when calling from the GUI
         // thread because when calling it from a worker thread the thrown
-        // exception isn't handled anywhere and thus std::terminate is called
+        // exception isn't handled anywhere and thus std::terminate is called.
+        // (BOPAlgo_ArgumentAnalyzer can use multiple threads.)
+
+        // Already canceled — keep returning true until Reset() is called.
         if (canceled) {
             return Standard_True;
         }
 
-        // it suffices to update only every second
-        // to avoid to unnecessarily process events
+        // Check global cancel flags (keyboard shortcut, requestCancel() call).
+        if (globalCancelRequested.load() || Gui::OperationCancel::isSet()) {
+            canceled = true;
+            return Standard_True;
+        }
+
+        // Process events every 200 ms so the Cancel button stays responsive.
+        // (The original 1000 ms interval made the dialog feel frozen.)
         steps++;
         myProgress->setValue(steps);
-        if (time.elapsed() > 1000) {
+        if (time.elapsed() > 200) {
             time.restart();
             QCoreApplication::processEvents();
 
@@ -1728,6 +1753,14 @@ Standard_Boolean BOPProgressIndicator::UserBreak()
     }
 
     return Standard_False;
+}
+
+void BOPProgressIndicator::requestCancel()
+{
+    // Set both the local flag and the global one so the next UserBreak()
+    // call (≤ 200 ms away) will return Standard_True.
+    globalCancelRequested = true;
+    Gui::OperationCancel::request();
 }
 
 #include "moc_TaskCheckGeometry.cpp"
