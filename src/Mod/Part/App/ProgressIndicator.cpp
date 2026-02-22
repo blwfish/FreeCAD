@@ -24,6 +24,7 @@
 
 #include "PreCompiled.h"
 
+#include <Base/OperationCancel.h>
 #include "ProgressIndicator.h"
 
 
@@ -66,7 +67,7 @@ void ProgressIndicator::Show(const Message_ProgressScope& theScope, const Standa
 
 Standard_Boolean ProgressIndicator::UserBreak()
 {
-    return progress->wasCanceled();
+    return progress->wasCanceled() || Base::OperationCancel::isSet();
 }
 
 void ProgressIndicator::Reset()
