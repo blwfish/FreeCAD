@@ -23,6 +23,7 @@
 #pragma once
 
 #include "FCGlobal.h"
+#include "OperationCancel.h"
 
 namespace Base
 {
@@ -36,7 +37,8 @@ namespace Base
  *   - Query whether the user has requested cancellation via @c userBreak().
  *
  * By default:
- *   - @c userBreak() returns false (no cancellation).
+ *   - @c userBreak() returns @c Base::OperationCancel::isSet() so any operation
+ *     wired through this interface respects the global atomic cancel flag.
  *   - @c show() is a no-op.
  *
  * Derived classes should override these methods to integrate with
@@ -64,13 +66,15 @@ public:
     /**
      * @brief Check if the user has requested to abort the operation.
      *
-     * Override to implement cancellation logic.
+     * Override to add additional cancellation logic.  The base implementation
+     * checks the global @c Base::OperationCancel flag (set via
+     * @c Base::OperationCancel::request() / @c Gui.cancelOperation()).
      *
      * @return @c true if the user requested a break, @c false otherwise.
      */
     virtual bool userBreak()
     {
-        return false;
+        return OperationCancel::isSet();
     }
 
     /**
