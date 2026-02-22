@@ -73,6 +73,8 @@
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
+#include <Message_ProgressRange.hxx>
+#include "ThicknessProgressIndicator.h"
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <BRepPrimAPI_MakeTorus.hxx>
@@ -3257,6 +3259,10 @@ TopoDS_Shape TopoShape::makeThickSolid(
     short join
 ) const
 {
+    Base::OperationCancel::clear();
+    Handle(ThicknessProgressIndicator) theProgress = new ThicknessProgressIndicator();
+    Message_ProgressRange theRange(theProgress->Start());
+
     BRepOffsetAPI_MakeThickSolid mkThick;
     mkThick.MakeThickSolidByJoin(
         this->_Shape,
@@ -3266,8 +3272,11 @@ TopoDS_Shape TopoShape::makeThickSolid(
         BRepOffset_Mode(offsetMode),
         intersection ? Standard_True : Standard_False,
         selfInter ? Standard_True : Standard_False,
-        GeomAbs_JoinType(join)
+        GeomAbs_JoinType(join),
+        Standard_False,  // RemoveIntEdges
+        theRange
     );
+    Base::OperationCancel::clear();
     return mkThick.Shape();
 }
 
