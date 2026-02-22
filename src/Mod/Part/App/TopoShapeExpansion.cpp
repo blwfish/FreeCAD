@@ -64,6 +64,8 @@
 #include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepOffsetAPI_MakeEvolved.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
+#include <Message_ProgressRange.hxx>
+#include "ThicknessProgressIndicator.h"
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepProj_Projection.hxx>
@@ -3084,6 +3086,10 @@ TopoShape& TopoShape::makeElementThickSolid(
         }
         remFace.Append(face.getShape());
     }
+    Base::OperationCancel::clear();
+    Handle(ThicknessProgressIndicator) theProgress = new ThicknessProgressIndicator();
+    Message_ProgressRange theRange(theProgress->Start());
+
     BRepOffsetAPI_MakeThickSolid mkThick;
     mkThick.MakeThickSolidByJoin(
         shape.getShape(),
@@ -3093,8 +3099,11 @@ TopoShape& TopoShape::makeElementThickSolid(
         BRepOffset_Mode(offsetMode),
         intersection ? Standard_True : Standard_False,
         selfInter ? Standard_True : Standard_False,
-        GeomAbs_JoinType(join)
+        GeomAbs_JoinType(join),
+        Standard_False,  // RemoveIntEdges
+        theRange
     );
+    Base::OperationCancel::clear();
     return makeElementShape(mkThick, shape, op);
 }
 
