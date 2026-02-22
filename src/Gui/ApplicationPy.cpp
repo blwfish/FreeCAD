@@ -56,6 +56,7 @@
 #include "Macro.h"
 #include "MainWindow.h"
 #include "MainWindowPy.h"
+#include <Base/OperationCancel.h>
 #include "PythonEditor.h"
 #include "PythonWrapper.h"
 #include "SoFCDB.h"
@@ -198,6 +199,15 @@ PyMethodDef ApplicationPy::Methods[] = {
      "updateGui() -> None\n"
      "\n"
      "Update the main window and all its windows."},
+    {"cancelOperation",
+     (PyCFunction)ApplicationPy::sCancelOperation,
+     METH_VARARGS,
+     "cancelOperation() -> None\n"
+     "\n"
+     "Request cancellation of the current long-running operation (Thickness,\n"
+     "boolean, Check Geometry, …).  Equivalent to pressing Ctrl+. in the GUI.\n"
+     "Safe to call from any thread; the flag is checked within ≤200 ms by the\n"
+     "operation's progress hook."},
     {"updateLocale",
      (PyCFunction)ApplicationPy::sUpdateLocale,
      METH_VARARGS,
@@ -1018,6 +1028,17 @@ PyObject* ApplicationPy::sUpdateGui(PyObject* /*self*/, PyObject* args)
     requirePythonMainThread("FreeCADGui.updateGui");
 
     qApp->processEvents();
+
+    Py_Return;
+}
+
+PyObject* ApplicationPy::sCancelOperation(PyObject* /*self*/, PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+
+    Base::OperationCancel::request();
 
     Py_Return;
 }
