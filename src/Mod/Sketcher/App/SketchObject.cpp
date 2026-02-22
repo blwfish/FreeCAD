@@ -132,6 +132,27 @@ FC_LOG_LEVEL_INIT("Sketch", true, true)
 //   TNP hash names end with ",E"/",F"/",V" for Edge/Face/Vertex.
 //   Simple names end with "Edge3", "Face7", "Vertex1", optionally prefixed.
 // Returns e.g. "Edge in 'Fusion010'" or "Face 3 in 'MyObj'".
+// Map a sketch geometry to a human-readable type name for error messages
+static const char* sketchGeoTypeName(const Part::Geometry* geo)
+{
+    if (!geo)
+        return "unknown";
+    // Check concrete types from most common to least.
+    // Use isDerivedFrom (inherited from BaseClass) — check leaf types before bases
+    // so e.g. ArcOfCircle isn't caught by the Conic check.
+    if (geo->isDerivedFrom<Part::GeomLineSegment>())    return "Line";
+    if (geo->isDerivedFrom<Part::GeomCircle>())         return "Circle";
+    if (geo->isDerivedFrom<Part::GeomArcOfCircle>())    return "Arc";
+    if (geo->isDerivedFrom<Part::GeomPoint>())          return "Point";
+    if (geo->isDerivedFrom<Part::GeomEllipse>())        return "Ellipse";
+    if (geo->isDerivedFrom<Part::GeomArcOfEllipse>())   return "EllipseArc";
+    if (geo->isDerivedFrom<Part::GeomBSplineCurve>())   return "BSpline";
+    if (geo->isDerivedFrom<Part::GeomArcOfHyperbola>()) return "HyperbolaArc";
+    if (geo->isDerivedFrom<Part::GeomArcOfParabola>())  return "ParabolaArc";
+    if (geo->isDerivedFrom<Part::GeomLine>())           return "Line";
+    return "geometry";
+}
+
 static std::string decodeExternalRef(const std::string& ref)
 {
     auto dotPos = ref.find('.');
@@ -9746,6 +9767,7 @@ void SketchObject::rebuildExternalGeometry(std::optional<ExternalToAdd> extToAdd
             continue;
         if(!refSet.count(egf->getRef())) {
             FC_ERR( "External geometry " << getFullName() << ".e" << egf->getId()
+                    << " (" << sketchGeoTypeName(geo) << ")"
                     << " missing reference to " << decodeExternalRef(egf->getRef()));
             FC_LOG( "  (raw ref: " << egf->getRef() << ")");  // full hash at LOG level for debugging
             hasError = true;
