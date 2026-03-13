@@ -1,0 +1,63 @@
+diff --git a/src/App/ElementMap.cpp b/src/App/ElementMap.cpp
+index ef252de781..78275b840f 100644
+--- a/src/App/ElementMap.cpp
++++ b/src/App/ElementMap.cpp
+@@ -1194,11 +1194,7 @@ void ElementMap::addChildElements(long masterTag, const std::vector<MappedChildE
+ 
+         // do child mapping only if the child element count >= 5
+         const int threshold {5};
+-
+-        // skip encoding only when masterTag=0, child.tag=0, and count is exactly at threshold
+-        bool skipEncoding = (masterTag == 0 && child.tag == 0 && child.count == threshold && child.elementMap);
+-
+-        if ((child.count >= threshold && !skipEncoding) || !child.elementMap) {
++        if ((child.count >= threshold && masterTag != 0) || !child.elementMap) {
+             encodeElementName(child.indexedName[0],
+                               tmp,
+                               ss,
+diff --git a/src/Mod/Part/App/TopoShape.cpp b/src/Mod/Part/App/TopoShape.cpp
+index 6cf3bd98d8..dba69ae4fe 100644
+--- a/src/Mod/Part/App/TopoShape.cpp
++++ b/src/Mod/Part/App/TopoShape.cpp
+@@ -295,13 +295,13 @@ TopoShape::TopoShape(const TopoShape& shape)
+     *this = shape;
+ }
+ 
+-std::pair<std::string, unsigned long> TopoShape::getElementTypeAndIndex(const char* RawName)
++std::pair<std::string, unsigned long> TopoShape::getElementTypeAndIndex(const char* Name)
+ {
+-    std::string strName = Data::oldElementName(RawName);
+-    const char* Name = strName.c_str();
+     int index = 0;
+     std::string element;
+-    boost::regex ex("^(Face|Edge|Vertex)([1-9][0-9]*)$");
++    // Regex modified to allow a prefix ending in a separator (e.g. TNP hash or Dot notation)
++    // Matches "Face3", "Part.Face3", or ";#7:1;:G0...F.Face3"
++    boost::regex ex("^(?:.*[.;:,])?(Face|Edge|Vertex)([1-9][0-9]*)$");
+     boost::cmatch what;
+ 
+     if (Name && boost::regex_match(Name, what, ex)) {
+diff --git a/src/Mod/PartDesign/App/FeatureBoolean.cpp b/src/Mod/PartDesign/App/FeatureBoolean.cpp
+index e3f9fd575f..16e5e17852 100644
+--- a/src/Mod/PartDesign/App/FeatureBoolean.cpp
++++ b/src/Mod/PartDesign/App/FeatureBoolean.cpp
+@@ -153,6 +153,8 @@ App::DocumentObjectExecReturn* Boolean::execute()
+         }
+     }
+ 
++    result.bakeInTransform();
++
+     result = refineShapeIfActive(result);
+ 
+     if (!isSingleSolidRuleSatisfied(result.getShape())) {
+@@ -209,6 +211,10 @@ void Boolean::onChanged(const App::Property* prop)
+         touch();
+     }
+ 
++    if (strcmp(prop->getName(), "Shape") == 0) {
++        updatePreviewShape();
++    }
++
+     Feature::onChanged(prop);
+ }
+ 
