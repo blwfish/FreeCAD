@@ -222,7 +222,28 @@ App::DocumentObjectExecReturn* Boolean::execute()
 
         std::unique_ptr<BRepAlgoAPI_BooleanOperation> mkBool(makeOperation(BaseShape, ToolShape));
         if (!mkBool->IsDone()) {
-            return new App::DocumentObjectExecReturn("Boolean operation failed");
+            std::stringstream error;
+            error << "Boolean operation failed";
+            error << std::endl << std::endl;
+            error << "This is usually caused by a limitation in the geometry "
+                     "engine, not a problem with your model. Faces that are "
+                     "exactly aligned, nearly touching, or in complex coplanar "
+                     "arrangements can be difficult for the engine to process.";
+            error << std::endl << std::endl;
+            error << "Things to try:" << std::endl;
+            error << "  - Reposition one shape slightly (e.g. add 0.01 mm "
+                     "in Placement)" << std::endl;
+            error << "  - Combine shapes in a different order" << std::endl;
+            error << "  - Check each input with Part > Check Geometry";
+            error << std::endl << std::endl;
+            error << "Input types: '"
+                  << base->Label.getValue() << "' ("
+                  << shapeTypeName(BaseShape.ShapeType()) << "), '"
+                  << tool->Label.getValue() << "' ("
+                  << shapeTypeName(ToolShape.ShapeType()) << ")";
+            error << std::endl;
+            error << "See: https://wiki.freecad.org/Boolean_Troubleshooting";
+            return new App::DocumentObjectExecReturn(error.str());
         }
         TopoDS_Shape resShape = mkBool->Shape();
         if (resShape.IsNull()) {
@@ -239,13 +260,12 @@ App::DocumentObjectExecReturn* Boolean::execute()
             if (!refineResultIsValid(res.getShape())) {
                 res = preRefine;
                 Base::Console().warning(
-                    "'%s': Refine (removeSplitter) produced invalid geometry "
-                    "(self-intersections) and was skipped. The result is "
-                    "geometrically correct but contains redundant edges that "
-                    "may slow downstream operations. Consider disabling Refine "
-                    "on this feature, or restructuring input geometry to avoid "
-                    "coplanar faces with partial overlap. This is a known issue "
-                    "in the CAD kernel (OCCT ShapeUpgrade_UnifySameDomain).\n",
+                    "'%s': The boolean result is correct, but the Refine "
+                    "(cleanup) step damaged it and was skipped. The result "
+                    "may have extra internal edges. To prevent this, disable "
+                    "Refine in this feature's properties. This is a known "
+                    "limitation of the geometry engine. "
+                    "See: https://wiki.freecad.org/Boolean_Troubleshooting\n",
                     this->Label.getValue()
                 );
             }
