@@ -1,0 +1,117 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+#
+# blw fork CI — Part module smoke tests
+#
+# Triggers on:
+#   • push to blw-fixes-* branches (local working branches)
+#   • push to any branch matching part-* (PR staging branches)
+#
+# NOTE: For push-triggered workflows, GitHub reads the workflow file from the
+# pushed branch — so this file must exist on each branch where you want it to
+# run. The easiest approach is to cherry-pick/merge this file onto each active
+# PR branch from blw-fixes-v4.
+#
+# To run manually: Actions → "blw fork CI" → Run workflow
+#
+# Key design choices vs. upstream CI_master.yml:
+#   - Linux only (ubuntu-latest) — cheapest, fastest, most reproducible
+#   - No multi-platform matrix — we're gating Part correctness, not platform compat
+#   - ccache keyed on branch + run_id with branch-level restore fallback
+#   - Runs TestPartApp (parttests/ + BooleanFeatureTest) via FreeCADCmd -t TestPartApp
+#   - Does NOT run full ctest suite or GUI tests — that's upstream's job
+
+name: blw fork CI
+
+on:
+  workflow_dispatch: ~
+  push:
+    branches:
+      - blw-fixes-*
+      - part-*
+
+concurrency:
+  group: blw-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    env:
+      CCACHE_COMPRESS: true
+      CCACHE_COMPRESSLEVEL: 5
+      CCACHE_CONFIGPATH: ${{ github.workspace }}/ccache/config
+      CCACHE_DIR: ${{ github.workspace }}/ccache
+      CCACHE_MAXSIZE: 2G
+      CCACHE_NODIRECT: true
+      CCACHE_NOHASHDIR: true
+      CCACHE_NOINODECACHE: true
+      CCACHE_SLOPPINESS: "include_file_ctime,include_file_mtime,pch_defines,time_macros"
+      CCACHE_COMPILERCHECK: "%compiler% -dumpfullversion -dumpversion"
+      builddir: ${{ github.workspace }}/build/release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@v0.9.5
+        with:
+          pixi-version: v0.59.0
+          cache: true
+          # cache-key prefix — bump if pixi.lock changes break cache
+          cache-key: pixi-ubuntu
+
+      - name: Restore ccache
+        id: cache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          # Exact key: branch + run. Restore-keys fall back to branch, then any.
+          key: blw-ccache-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            blw-ccache-${{ github.ref_name }}-
+            blw-ccache-
+
+      - name: Print ccache stats (pre-build)
+        run: |
+          pixi run ccache -s
+          pixi run ccache -z
+          pixi run ccache -p
+
+      - name: CMake Configure
+        run: |
+          mkdir -p "${{ env.builddir }}"
+          pixi run configure-release
+
+      - name: CMake Build
+        run: |
+          pixi run build-release
+
+      - name: Print ccache stats (post-build)
+        if: always()
+        run: pixi run ccache -s
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: blw-ccache-${{ github.ref_name }}-${{ github.run_id }}
+
+      - name: Run Part boolean smoke tests
+        timeout-minutes: 10
+        run: |
+          # run_boolean_smoke_test.py calls sys.exit(1) on failure, so
+          # FreeCADCmd exits nonzero and the step fails cleanly — no grep needed.
+          pixi run "${{ env.builddir }}/bin/FreeCADCmd" \
+            src/Mod/Part/parttests/run_boolean_smoke_test.py \
+            2>&1 | tee /tmp/BooleanSmokeTest.log
+
+      - name: Upload test log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BooleanSmokeTest-log-${{ github.run_id }}
+          path: /tmp/BooleanSmokeTest.log
+          retention-days: 7
