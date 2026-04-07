@@ -100,6 +100,69 @@ using namespace Base;
 
 FC_LOG_LEVEL_INIT("Sketch", true, true)
 
+// Map a sketch geometry to a human-readable type name for error messages.
+static const char* sketchGeoTypeName(const Part::Geometry* geo)
+{
+    if (!geo)
+        return "unknown";
+    if (geo->isDerivedFrom<Part::GeomLineSegment>())    return "Line";
+    if (geo->isDerivedFrom<Part::GeomCircle>())         return "Circle";
+    if (geo->isDerivedFrom<Part::GeomArcOfCircle>())    return "Arc";
+    if (geo->isDerivedFrom<Part::GeomPoint>())          return "Point";
+    if (geo->isDerivedFrom<Part::GeomEllipse>())        return "Ellipse";
+    if (geo->isDerivedFrom<Part::GeomArcOfEllipse>())   return "EllipseArc";
+    if (geo->isDerivedFrom<Part::GeomBSplineCurve>())   return "BSpline";
+    if (geo->isDerivedFrom<Part::GeomArcOfHyperbola>()) return "HyperbolaArc";
+    if (geo->isDerivedFrom<Part::GeomArcOfParabola>())  return "ParabolaArc";
+    if (geo->isDerivedFrom<Part::GeomLine>())           return "Line";
+    return "geometry";
+}
+
+// Decode a TNP external-geometry reference string into a human-readable description.
+// Ref format: "ObjectName.encoded_element_name"
+//   TNP hash names end with ",E"/",F"/",V" for Edge/Face/Vertex.
+//   Simple names end with "Edge3", "Face7", "Vertex1", optionally prefixed.
+// Returns e.g. "Edge in 'Fusion010'" or "Face 3 in 'MyObj'".
+static std::string decodeExternalRef(const std::string& ref)
+{
+    auto dotPos = ref.find('.');
+    if (dotPos == std::string::npos || dotPos == 0)
+        return std::string("'") + ref + "'";
+
+    const std::string objName = ref.substr(0, dotPos);
+    const std::string elemName = ref.substr(dotPos + 1);
+
+    // TNP hash names: type is the last char after ','
+    // e.g. ";#61cd:4;:H1137,E" → Edge, ";:H11e9:7,F" → Face
+    if (elemName.size() >= 2 && elemName[elemName.size() - 2] == ',') {
+        const char t = elemName.back();
+        const char* typeName =
+            (t == 'E') ? "Edge" : (t == 'F') ? "Face" : (t == 'V') ? "Vertex" : nullptr;
+        if (typeName)
+            return std::string(typeName) + " in '" + objName + "'";
+    }
+
+    // Simple element names: ends with Face/Edge/Vertex + digits (possibly prefixed)
+    // e.g. "Face3", "Edge12", "Part.Face3"
+    for (const char* typeName : {"Face", "Edge", "Vertex"}) {
+        const std::size_t tlen = std::strlen(typeName);
+        auto pos = elemName.rfind(typeName);
+        if (pos == std::string::npos)
+            continue;
+        const auto afterType = pos + tlen;
+        if (afterType >= elemName.size())
+            continue;
+        bool allDigits = true;
+        for (auto i = afterType; i < elemName.size() && allDigits; ++i)
+            allDigits = std::isdigit(static_cast<unsigned char>(elemName[i]));
+        if (allDigits)
+            return std::string(typeName) + " " + elemName.substr(afterType)
+                + " in '" + objName + "'";
+    }
+
+    return "geometry in '" + objName + "'";
+}
+
 void SketchObject::initExternalGeo() {
     std::vector<Part::Geometry *> geos;
     auto HLine = GeometryTypedFacade<Part::GeomLineSegment>::getTypedFacade();
@@ -2689,7 +2752,9 @@ void SketchObject::rebuildExternalGeometry(std::optional<ExternalToAdd> extToAdd
             continue;
         if(!refSet.count(egf->getRef())) {
             FC_ERR( "External geometry " << getFullName() << ".e" << egf->getId()
-                    << " missing reference: " << egf->getRef());
+                    << " (" << sketchGeoTypeName(geo) << ")"
+                    << " missing reference to " << decodeExternalRef(egf->getRef()));
+            FC_LOG( "  (raw ref: " << egf->getRef() << ")");
             hasError = true;
             egf->setFlag(ExternalGeometryExtension::Missing,true);
         } else {
@@ -2762,19 +2827,22 @@ void SketchObject::fixExternalGeometry(const std::vector<int> &geoIds) {
         std::string ref = egf->getRef();
         auto pos = ref.find('.');
         if(pos == std::string::npos) {
-            FC_ERR("Invalid geometry reference " << ref);
+            FC_ERR("Invalid external geometry reference (malformed, no object separator): " << ref);
             continue;
         }
         std::string objName = ref.substr(0,pos);
         auto obj = getDocument()->getObject(objName.c_str());
         if(!obj) {
-            FC_ERR("Cannot find object in reference " << ref);
+            FC_ERR("Cannot find object '" << objName << "' for external geometry reference");
+            FC_LOG("  (raw ref: " << ref << ")");
             continue;
         }
 
         auto elements = Part::Feature::getRelatedElements(obj,ref.c_str()+pos+1);
         if(!elements.size()) {
-            FC_ERR("No related reference found for " << ref);
+            FC_ERR("No related element found for " << decodeExternalRef(ref)
+                   << " (topology may have changed)");
+            FC_LOG("  (raw ref: " << ref << ")");
             continue;
         }
 
