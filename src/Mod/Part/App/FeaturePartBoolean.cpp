@@ -27,15 +27,12 @@
 #include <memory>
 
 #include <Mod/Part/App/FCBRepAlgoAPI_BooleanOperation.h>
-#include <BOPAlgo_ArgumentAnalyzer.hxx>
-#include <BRepBuilderAPI_Copy.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <Standard_Failure.hxx>
 #include <TopExp.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 
 #include <App/Application.h>
-#include <Base/Console.h>
 #include <Base/Exception.h>
 #include <Base/Parameter.h>
 #include <Base/ProgramVersion.h>
@@ -100,48 +97,9 @@ void throwIfInvalidIfCheckModel(const TopoDS_Shape& shape)
     }
 }
 
-bool getRefineModelParameter()
-{
-    Base::Reference<ParameterGrp> hGrp = App::GetApplication()
-                                             .GetUserParameter()
-                                             .GetGroup("BaseApp")
-                                             ->GetGroup("Preferences")
-                                             ->GetGroup("Mod/Part/Boolean");
-    return hGrp->GetBool("RefineModel", true);
-}
-
-bool getCheckRefineParameter()
-{
-    Base::Reference<ParameterGrp> hGrp = App::GetApplication()
-                                             .GetUserParameter()
-                                             .GetGroup("BaseApp")
-                                             ->GetGroup("Preferences")
-                                             ->GetGroup("Mod/Part/Boolean");
-    return hGrp->GetBool("CheckRefine", false);
-}
-
-bool refineResultIsValid(const TopoDS_Shape& shape, bool checkRefine)
-{
-    if (!checkRefine) {
-        return true;  // validation disabled, assume valid
-    }
-
-    // Run BOPAlgo_ArgumentAnalyzer to detect self-intersections that
-    // BRepCheck_Analyzer misses.  This catches corruption introduced by
-    // ShapeUpgrade_UnifySameDomain (removeSplitter/Refine) on shapes with
-    // coplanar faces and partial overlap.
-    TopoDS_Shape copy = BRepBuilderAPI_Copy(shape).Shape();
-    BOPAlgo_ArgumentAnalyzer checker;
-    checker.SetShape1(copy);
-    checker.SelfInterMode() = true;
-    checker.SetRunParallel(true);
-    checker.Perform();
-    return !checker.HasFaulty();
-}
-
 }  // namespace Part
 
-PROPERTY_SOURCE_ABSTRACT(Part::Boolean, Part::Feature)
+PROPERTY_SOURCE_ABSTRACT(Part::Boolean, Part::RefinableFeature)
 
 
 Boolean::Boolean()
@@ -157,23 +115,6 @@ Boolean::Boolean()
     );
     History.setSize(0);
 
-    ADD_PROPERTY_TYPE(
-        Refine,
-        (0),
-        "Boolean",
-        (App::PropertyType)(App::Prop_None),
-        "Refine shape (clean up redundant edges) after this boolean operation"
-    );
-    ADD_PROPERTY_TYPE(
-        CheckRefine,
-        (false),
-        "Boolean",
-        (App::PropertyType)(App::Prop_None),
-        "Validate refine result and revert if it introduces self-intersections (slower)"
-    );
-
-    this->Refine.setValue(getRefineModelParameter());
-    this->CheckRefine.setValue(getCheckRefineParameter());
 }
 
 short Boolean::mustExecute() const
@@ -274,22 +215,7 @@ App::DocumentObjectExecReturn* Boolean::execute()
 
         TopoShape res(0);
         res.makeElementShape(*mkBool, shapes, opCode());
-        if (this->Refine.getValue()) {
-            TopoShape preRefine = res;
-            res = res.makeElementRefine();
-            if (!refineResultIsValid(res.getShape(), this->CheckRefine.getValue())) {
-                res = preRefine;
-                Base::Console().warning(
-                    "'%s': The boolean result is correct, but the Refine "
-                    "(cleanup) step damaged it and was skipped. The result "
-                    "may have extra internal edges. To prevent this, disable "
-                    "Refine in this feature's properties. This is a known "
-                    "limitation of the geometry engine. "
-                    "See: https://wiki.freecad.org/Boolean_Troubleshooting\n",
-                    this->Label.getValue()
-                );
-            }
-        }
+        this->applyRefine(res);
         this->Shape.setValue(res);
         copyMaterial(base);
         return Part::Feature::execute();
