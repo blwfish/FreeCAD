@@ -327,10 +327,18 @@ void StdCmdLinkMake::activated(int)
     };
 
 
+    // Collect selections from all open documents, not just the active one.
+    // getCompleteSelection() only returns the active document's selection since the
+    // per-document selection refactor (upstream commit 3076ce66be). The classic
+    // cross-document workflow (select in doc A, switch to doc B, click Make Link)
+    // would otherwise silently see an empty selection and show the dialog instead.
+    // Carried locally until upstream resolves this (see issue #28681).
     std::set<App::DocumentObject*> objs;
-    for (auto& sel : Selection().getCompleteSelection()) {
-        if (sel.pObject && sel.pObject->isAttachedToDocument()) {
-            objs.insert(sel.pObject);
+    for (auto appDoc : App::GetApplication().getDocuments()) {
+        for (auto& sel : Selection().getSelection(appDoc->getName())) {
+            if (sel.pObject && sel.pObject->isAttachedToDocument()) {
+                objs.insert(sel.pObject);
+            }
         }
     }
 
