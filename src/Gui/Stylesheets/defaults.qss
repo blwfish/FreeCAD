@@ -4,6 +4,12 @@
  * to links or control certain aspects of program looks that should be shared across all styles, including classic.
  */
 
+/* Gui::TextDocumentEditorView ---------------------------------------------- */
+
+Gui--TextDocumentEditorView QPlainTextEdit {
+    font-size: 14pt;
+}
+
 /* Gui::SplitButton --------------------------------------------------------- */
 
 Gui--SplitButton QToolButton[splitRole="menu"] {
