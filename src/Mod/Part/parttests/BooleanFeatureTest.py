@@ -133,3 +133,28 @@ class TestBooleanFeatures(unittest.TestCase):
         shape = fuse.Shape
         self.assertFalse(shape.isNull(), "Part::Fuse with Refine=True result is null")
         self.assertGreater(shape.Volume, 0, "Part::Fuse with Refine=True result has no volume")
+
+    # ------------------------------------------------------------------
+    # Error paths: MultiFuse must report actionable messages when the
+    # Shapes list doesn't have enough inputs.
+    # ------------------------------------------------------------------
+
+    def test_multifuse_empty_shapes_fails_cleanly(self):
+        mf = self.doc.addObject("Part::MultiFuse", "MultiFuseEmpty")
+        self.doc.recompute()
+        self.assertTrue(
+            mf.Shape.isNull(),
+            "Part::MultiFuse with no Shapes should not produce a valid shape",
+        )
+
+    def test_multifuse_single_shape_fails_cleanly(self):
+        b1 = self.doc.addObject("Part::Box", "SoloBox")
+        b1.Length = b1.Width = b1.Height = 10.0
+        mf = self.doc.addObject("Part::MultiFuse", "MultiFuseSingle")
+        mf.Shapes = [b1]
+        self.doc.recompute()
+        self.assertTrue(
+            mf.Shape.isNull(),
+            "Part::MultiFuse with one non-compound Shape should not produce "
+            "a valid shape",
+        )
