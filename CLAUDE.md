@@ -92,6 +92,7 @@ individually — they are carried with their parent patch.
 | 16 | `641e9384d8` | `Gui/Stylesheets/defaults.qss` | Increase Text Document editor font to 14pt for HiDPI displays. Scoped to `Gui::TextDocumentEditorView` only. | Never (personal preference) |
 | 17 | `bc6fcff4ba` | `Part/parttests/BooleanFeatureTest.py`, `run_boolean_smoke_test.py`, `TestPartApp.py` | Headless smoke tests for boolean feature classes. Catch silent registration failures (missing `init()` in `AppPart.cpp`). | Never (infrastructure) |
 | 18 | `4ac3d86023` | `.github/workflows/blw_ci.yml` | GitHub Actions workflow for our fork — runs `run_boolean_smoke_test.py` on push to `blw-fixes-*` and `part-*` branches. | Never (fork-specific CI) |
+| 19 | `1d312a9903` | `Part/App/FeaturePartFuse.cpp`, `Part/parttests/BooleanFeatureTest.py` | Replace the static `"Not enough shape objects linked"` throw in `MultiFuse::execute()` with three actionable branches: empty `Shapes` list, single non-compound input (names the offending object), and single compound with <2 children (reports child count). Adds two smoke tests for the empty and single-input paths. | Merged upstream |
 
 ## PR #29134 status
 
