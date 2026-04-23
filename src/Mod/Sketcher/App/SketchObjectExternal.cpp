@@ -118,12 +118,28 @@ static const char* sketchGeoTypeName(const Part::Geometry* geo)
     return "geometry";
 }
 
+// If `doc` has an object named `objName` with a non-empty Label, returns
+// `"Label" (objName)`; otherwise returns `'objName'`.
+static std::string formatObjectRef(const App::Document* doc, const std::string& objName)
+{
+    if (doc) {
+        if (auto* obj = doc->getObject(objName.c_str())) {
+            const char* label = obj->Label.getValue();
+            if (label && *label && objName != label)
+                return std::string("\"") + label + "\" (" + objName + ")";
+        }
+    }
+    return std::string("'") + objName + "'";
+}
+
 // Decode a TNP external-geometry reference string into a human-readable description.
 // Ref format: "ObjectName.encoded_element_name"
 //   TNP hash names end with ",E"/",F"/",V" for Edge/Face/Vertex.
 //   Simple names end with "Edge3", "Face7", "Vertex1", optionally prefixed.
-// Returns e.g. "Edge in 'Fusion010'" or "Face 3 in 'MyObj'".
-static std::string decodeExternalRef(const std::string& ref)
+// If `doc` is provided and the referenced object still exists with a distinct
+// label, the label is included, e.g. `Edge in "Main Wall" (Cut004)`; otherwise
+// falls back to `Edge in 'Cut004'`.
+static std::string decodeExternalRef(const std::string& ref, const App::Document* doc = nullptr)
 {
     auto dotPos = ref.find('.');
     if (dotPos == std::string::npos || dotPos == 0)
@@ -131,6 +147,7 @@ static std::string decodeExternalRef(const std::string& ref)
 
     const std::string objName = ref.substr(0, dotPos);
     const std::string elemName = ref.substr(dotPos + 1);
+    const std::string objRef = formatObjectRef(doc, objName);
 
     // TNP hash names: type is the last char after ','
     // e.g. ";#61cd:4;:H1137,E" → Edge, ";:H11e9:7,F" → Face
@@ -139,7 +156,7 @@ static std::string decodeExternalRef(const std::string& ref)
         const char* typeName =
             (t == 'E') ? "Edge" : (t == 'F') ? "Face" : (t == 'V') ? "Vertex" : nullptr;
         if (typeName)
-            return std::string(typeName) + " in '" + objName + "'";
+            return std::string(typeName) + " in " + objRef;
     }
 
     // Simple element names: ends with Face/Edge/Vertex + digits (possibly prefixed)
@@ -157,10 +174,10 @@ static std::string decodeExternalRef(const std::string& ref)
             allDigits = std::isdigit(static_cast<unsigned char>(elemName[i]));
         if (allDigits)
             return std::string(typeName) + " " + elemName.substr(afterType)
-                + " in '" + objName + "'";
+                + " in " + objRef;
     }
 
-    return "geometry in '" + objName + "'";
+    return "geometry in " + objRef;
 }
 
 void SketchObject::initExternalGeo() {
@@ -2745,21 +2762,41 @@ void SketchObject::rebuildExternalGeometry(std::optional<ExternalToAdd> extToAdd
 
     // Check for any missing references
     bool hasError = false;
+    int geoIdx = 0;
     for(auto geo : geoms) {
         auto egf = ExternalGeometryFacade::getFacade(geo);
         egf->setFlag(ExternalGeometryExtension::Sync,false);
-        if(egf->getRef().empty())
+        if(egf->getRef().empty()) {
+            ++geoIdx;
             continue;
+        }
         if(!refSet.count(egf->getRef())) {
-            FC_ERR( "External geometry " << getFullName() << ".e" << egf->getId()
+            // GeoId convention: ExternalGeo[i] → GeoId = -(i+1)
+            int brokenGeoId = -(geoIdx + 1);
+            std::string usedBy;
+            const auto& clist = Constraints.getValues();
+            for (int ci = 0; ci < (int)clist.size(); ++ci) {
+                const auto* c = clist[ci];
+                if (c->First == brokenGeoId || c->Second == brokenGeoId
+                        || c->Third == brokenGeoId) {
+                    if (!usedBy.empty())
+                        usedBy += ", ";
+                    usedBy += c->typeToString() + " [" + std::to_string(ci) + "]";
+                }
+            }
+            FC_ERR( "External geometry in sketch \"" << Label.getValue()
+                    << "\" (" << getFullName() << "): e" << egf->getId()
                     << " (" << sketchGeoTypeName(geo) << ")"
-                    << " missing reference to " << decodeExternalRef(egf->getRef()));
+                    << " missing reference to "
+                    << decodeExternalRef(egf->getRef(), getDocument())
+                    << (usedBy.empty() ? "" : " — referenced by: " + usedBy));
             FC_LOG( "  (raw ref: " << egf->getRef() << ")");
             hasError = true;
             egf->setFlag(ExternalGeometryExtension::Missing,true);
         } else {
             egf->setFlag(ExternalGeometryExtension::Missing,false);
         }
+        ++geoIdx;
     }
 
     ExternalGeo.setValues(std::move(geoms));
@@ -2840,7 +2877,7 @@ void SketchObject::fixExternalGeometry(const std::vector<int> &geoIds) {
 
         auto elements = Part::Feature::getRelatedElements(obj,ref.c_str()+pos+1);
         if(!elements.size()) {
-            FC_ERR("No related element found for " << decodeExternalRef(ref)
+            FC_ERR("No related element found for " << decodeExternalRef(ref, getDocument())
                    << " (topology may have changed)");
             FC_LOG("  (raw ref: " << ref << ")");
             continue;
