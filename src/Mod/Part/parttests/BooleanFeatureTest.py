@@ -23,6 +23,20 @@ def _make_boxes(doc):
     return b1, b2
 
 
+def _make_shell_feature(doc, name):
+    """Return a Part::Feature whose Shape is a Shell (not a Solid).
+
+    Mimics the typical user trigger for the pre-flight solid check: a
+    Part::Extrusion with Solid=False, or anything else that hands a Shell
+    to a boolean operation. We synthesise the Shell directly from a Box's
+    outer shell to avoid pulling in Sketcher.
+    """
+    feat = doc.addObject("Part::Feature", name)
+    box = Part.makeBox(10, 10, 10)
+    feat.Shape = box.Shells[0]
+    return feat
+
+
 class TestBooleanFeatures(unittest.TestCase):
     def setUp(self):
         self.doc = FreeCAD.newDocument("BooleanFeatureTest")
@@ -157,4 +171,52 @@ class TestBooleanFeatures(unittest.TestCase):
             mf.Shape.isNull(),
             "Part::MultiFuse with one non-compound Shape should not produce "
             "a valid shape",
+        )
+
+    # ------------------------------------------------------------------
+    # Pre-flight solid checks: Shell / Face / Wire inputs must be rejected
+    # before reaching the OCCT boolean kernel. The most common user trigger
+    # is Part::Extrusion with Solid=False, which produces a Shell that
+    # passes Check Geometry but cannot participate in booleans.
+    # ------------------------------------------------------------------
+
+    def test_fuse_rejects_non_solid_base(self):
+        shell = _make_shell_feature(self.doc, "ShellBase")
+        box = self.doc.addObject("Part::Box", "FuseToolBox")
+        box.Length = box.Width = box.Height = 10.0
+        self.doc.recompute()
+        fuse = self.doc.addObject("Part::Fuse", "FuseShellBase")
+        fuse.Base = shell
+        fuse.Tool = box
+        self.doc.recompute()
+        self.assertTrue(
+            fuse.Shape.isNull(),
+            "Part::Fuse with Shell Base must not produce a valid result",
+        )
+
+    def test_fuse_rejects_non_solid_tool(self):
+        box = self.doc.addObject("Part::Box", "FuseBaseBox")
+        box.Length = box.Width = box.Height = 10.0
+        shell = _make_shell_feature(self.doc, "ShellTool")
+        self.doc.recompute()
+        fuse = self.doc.addObject("Part::Fuse", "FuseShellTool")
+        fuse.Base = box
+        fuse.Tool = shell
+        self.doc.recompute()
+        self.assertTrue(
+            fuse.Shape.isNull(),
+            "Part::Fuse with Shell Tool must not produce a valid result",
+        )
+
+    def test_multifuse_rejects_non_solid_input(self):
+        box = self.doc.addObject("Part::Box", "MFSolidBox")
+        box.Length = box.Width = box.Height = 10.0
+        shell = _make_shell_feature(self.doc, "MFShellInput")
+        self.doc.recompute()
+        mf = self.doc.addObject("Part::MultiFuse", "MultiFuseShell")
+        mf.Shapes = [box, shell]
+        self.doc.recompute()
+        self.assertTrue(
+            mf.Shape.isNull(),
+            "Part::MultiFuse with Shell input must not produce a valid result",
         )
