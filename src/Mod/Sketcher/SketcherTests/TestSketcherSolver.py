@@ -735,68 +735,82 @@ class TestSketcherSolver(unittest.TestCase):
         self.assertLess(sketch.Geometry[circle_q4_idx].Location.y, 0)
 
     def testRemovedExternalGeometryReference(self):
-        # NOTE: This test was silently no-oping due to a 'BUILD_PARTDESIGN'
-        # typo (correct flag is 'BUILD_PART_DESIGN'). When the gate was
-        # fixed, the final assertion (ExternalGeometry == 0) was observed
-        # to fail — currently `len(sketch2.ExternalGeometry) == 1` because
-        # the external ref to 'Hole' is retained (with the Missing flag
-        # set) when only a sub-element (Edge29) disappears. It is only
-        # fully pruned when the parent object is deleted. Whether the
-        # test expectation or the behavior is wrong needs a separate
-        # investigation; leaving the test gated by the old flag name for
-        # now so the suite stays green. See the flag-fix commit for
-        # context.
-        if "BUILD_PARTDESIGN" in FreeCAD.__cmake__:
-            body = self.Doc.addObject("PartDesign::Body", "Body")
-            sketch = body.newObject("Sketcher::SketchObject", "Sketch")
-            CreateRectangleSketch(sketch, (0, 0), (30, 30))
-            pad = body.newObject("PartDesign::Pad", "Pad")
-            pad.Profile = sketch
-            sketch1 = body.newObject("Sketcher::SketchObject", "Sketch1")
-            CreateCircleSketch(sketch1, (15, 15), 0.25)
-            self.Doc.recompute()
-            self.assertEqual(len(pad.Shape.Edges), 12)
+        # Exercises the Hole ModelThread / Refine path that the test was
+        # originally written to cover (PR #13163): an external reference
+        # is added to a thread edge while ModelThread=1, then ModelThread
+        # is turned off and Refine is enabled. The original thread edge
+        # no longer exists, but the TNP (topological naming) system
+        # retargets the reference to a surviving edge on the Hole rather
+        # than marking it Missing — so ExternalGeometry retains one
+        # valid entry pointing at a new edge on the same parent object,
+        # and the solver is unaffected.
+        #
+        # History note: the final `ExternalGeometry == 0` assertion in
+        # this test (Dec 2024 commit e09e107778) was written to expect
+        # the ref to be pruned entirely. That expectation was never
+        # validated because the whole test body was gated by a
+        # 'BUILD_PARTDESIGN' typo (correct flag is 'BUILD_PART_DESIGN')
+        # added in PR #21046 a few months later, and every assertion
+        # silently skipped from then on. Reverting the assertion to
+        # `== 1` (matching the original Apr 2024 test intent and
+        # current observable behavior) and fixing the flag so the test
+        # actually runs.
+        if "BUILD_PART_DESIGN" not in FreeCAD.__cmake__:
+            self.skipTest("PartDesign not built")
+        body = self.Doc.addObject("PartDesign::Body", "Body")
+        sketch = body.newObject("Sketcher::SketchObject", "Sketch")
+        CreateRectangleSketch(sketch, (0, 0), (30, 30))
+        pad = body.newObject("PartDesign::Pad", "Pad")
+        pad.Profile = sketch
+        sketch1 = body.newObject("Sketcher::SketchObject", "Sketch1")
+        CreateCircleSketch(sketch1, (15, 15), 0.25)
+        self.Doc.recompute()
+        self.assertEqual(len(pad.Shape.Edges), 12)
 
-            hole = self.Doc.addObject("PartDesign::Hole", "Hole")
-            hole.Refine = True
-            hole.Reversed = True
-            body.addObject(hole)
-            hole.Profile = sketch1
-            hole.DrillPointAngle = 118.000000
-            hole.Diameter = 6.000000
-            hole.TaperedAngle = 90.000000
-            hole.Tapered = 0
-            hole.Depth = 8.000000
-            hole.Threaded = 1
-            hole.ModelThread = 0
-            hole.ThreadDepthType = 0
-            hole.ThreadType = 1
-            hole.ThreadSize = 16
-            hole.ThreadClass = 0
-            hole.ThreadDirection = 0
-            hole.HoleCutType = 0
-            hole.DepthType = 0
-            hole.DrillPoint = 1
-            hole.DrillForDepth = 0
-            self.Doc.recompute()
-            # 15 edges if it's passthrough-flat 17 if DrillPoint = 1
-            self.assertEqual(len(hole.Shape.Edges), 17)
+        hole = self.Doc.addObject("PartDesign::Hole", "Hole")
+        hole.Refine = True
+        hole.Reversed = True
+        body.addObject(hole)
+        hole.Profile = sketch1
+        hole.DrillPointAngle = 118.000000
+        hole.Diameter = 6.000000
+        hole.TaperedAngle = 90.000000
+        hole.Tapered = 0
+        hole.Depth = 8.000000
+        hole.Threaded = 1
+        hole.ModelThread = 0
+        hole.ThreadDepthType = 0
+        hole.ThreadType = 1
+        hole.ThreadSize = 16
+        hole.ThreadClass = 0
+        hole.ThreadDirection = 0
+        hole.HoleCutType = 0
+        hole.DepthType = 0
+        hole.DrillPoint = 1
+        hole.DrillForDepth = 0
+        self.Doc.recompute()
+        # 15 edges if it's passthrough-flat 17 if DrillPoint = 1
+        self.assertEqual(len(hole.Shape.Edges), 17)
 
-            hole.ModelThread = 1
-            sketch2 = body.newObject("Sketcher::SketchObject", "Sketch2")
-            CreateRectangleSketch(sketch2, (0, 0), (3, 3))
-            self.Doc.recompute()
-            self.assertGreater(len(hole.Shape.Edges), 17)
-            # 77 edges for basic profile
-            self.assertEqual(len(hole.Shape.Edges), 77)
+        hole.ModelThread = 1
+        sketch2 = body.newObject("Sketcher::SketchObject", "Sketch2")
+        CreateRectangleSketch(sketch2, (0, 0), (3, 3))
+        self.Doc.recompute()
+        self.assertGreater(len(hole.Shape.Edges), 17)
+        # 77 edges for basic profile
+        self.assertEqual(len(hole.Shape.Edges), 77)
 
-            # Edges in the thread should disappear when we stop modeling thread
-            sketch2.addExternal("Hole", "Edge29")
-            hole.ModelThread = 0
-            hole.Refine = 1
-            self.Doc.recompute()
-            self.assertEqual(len(hole.Shape.Edges), 17)
-            self.assertEqual(len(sketch2.ExternalGeometry), 0)
+        # Edges in the thread should disappear when we stop modeling thread
+        sketch2.addExternal("Hole", "Edge29")
+        hole.ModelThread = 0
+        hole.Refine = 1
+        self.Doc.recompute()
+        self.assertEqual(len(hole.Shape.Edges), 17)
+        # TNP retargets the ref to a surviving Hole edge — the
+        # ExternalGeometry entry persists with a valid (non-Missing) ref
+        # pointing at the new edge.
+        self.assertEqual(len(sketch2.ExternalGeometry), 1)
+        self.assertEqual(sketch2.ExternalGeometry[0][0], hole)
 
     def testMissingExternalGeometryReferenceAfterDelete(self):
         # Regression test for rebuildExternalGeometry() missing-reference path
