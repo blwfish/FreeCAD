@@ -75,7 +75,6 @@ individually — they are carried with their parent patch.
 | # | Commit | File(s) | Why we have it | Drop when |
 |---|--------|---------|----------------|-----------|
 | 1 | `a0954db1ce` | `App/ElementMap.cpp` | Demote noisy duplicate-mapping warning from WARN to TRACE — spams the report view on large assemblies. | Merged upstream |
-| 2 | `c2843fc2dd` | `Part/App/TopoShape.cpp`, `PartDesign/App/FeatureBoolean.cpp` | TopoShape: extend `getElementTypeAndIndex` regex to handle TNP hash/dot-notation prefixes. FeatureBoolean: trigger preview shape update on change. Note: `bakeInTransform()` deliberately excluded — upstream reverted it (converts planar faces to BSplines, breaks Refine). | Merged upstream |
 | 3 | `ee4021d900` | `Gui/MainWindow.cpp/h`, `Gui/OperationCancel.h`, `Part/Gui/TaskCheckGeometry.cpp/h` | Add `Ctrl+.` cancel for Check Geometry long-running operations. Introduces `Gui::OperationCancel` atomic flag. | Merged upstream |
 | 4 | `4e9af83359` | `Base/OperationCancel.h`, `Gui/ApplicationPy.cpp/h`, `Part/App/TopoShape.cpp`, `TopoShapeExpansion.cpp`, `ThicknessProgressIndicator.h` | Make Thickness (`BRepOffsetAPI_MakeThickSolid`) cancellable via `Ctrl+.` and MCP `cancel_operation`. Moves cancel flag to `Base/` so App-layer code can check it. | Merged upstream |
 | 5 | `991353765a` | `Base/ProgressIndicator.h` | Wire `Base::OperationCancel::isSet()` into `ProgressIndicator::userBreak()` so any OCC operation that polls the progress indicator respects cancel. | Merged upstream |
@@ -108,3 +107,24 @@ error messages). Those will all go away when #29134 merges — watch the PR
 and collapse the manifest when it lands.
 
 Patches 8 (Make Link) and 16–18 are expected to stay on the fork.
+
+## Withdrawn patches
+
+Patch 2 (`c2843fc2dd`, `TopoShape::getElementTypeAndIndex` regex extension +
+`PartDesign::Boolean` `bakeInTransform`) was reverted on 2026-04-23 (commit
+`19f7134c4b`). Reasons:
+
+- The TopoShape regex change re-introduced exactly the prefix-aware regex that
+  upstream had tried in PR #25913 and reverted in PR #26596 (Jan 2026) due to
+  regressions. Our re-introduction silently broke the existing upstream test
+  `TestElementTypeWithSubelements` (which asserts `"Part.Body.Pad.Face3"`
+  must NOT match). Nobody noticed because our smoke tests don't cover the
+  C++ ctest suite.
+- The `bakeInTransform()` call was previously documented in this file as
+  "deliberately excluded — upstream reverted it (converts planar faces to
+  BSplines, breaks Refine)", but the actual commit included it. Either a
+  documentation error or a silent regression on planar-face refines.
+
+If the original symptoms recur (originally cited issues #26119, #26327,
+#26400), investigate them fresh per-issue with proper tests rather than
+re-applying upstream-rejected changes.
