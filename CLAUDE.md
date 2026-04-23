@@ -74,7 +74,6 @@ individually — they are carried with their parent patch.
 
 | # | Commit | File(s) | Why we have it | Drop when |
 |---|--------|---------|----------------|-----------|
-| 1 | `a0954db1ce` | `App/ElementMap.cpp` | Demote noisy duplicate-mapping warning from WARN to TRACE — spams the report view on large assemblies. | Merged upstream |
 | 3 | `ee4021d900` | `Gui/MainWindow.cpp/h`, `Gui/OperationCancel.h`, `Part/Gui/TaskCheckGeometry.cpp/h` | Add `Ctrl+.` cancel for Check Geometry long-running operations. Introduces `Gui::OperationCancel` atomic flag. | Merged upstream |
 | 4 | `4e9af83359` | `Base/OperationCancel.h`, `Gui/ApplicationPy.cpp/h`, `Part/App/TopoShape.cpp`, `TopoShapeExpansion.cpp`, `ThicknessProgressIndicator.h` | Make Thickness (`BRepOffsetAPI_MakeThickSolid`) cancellable via `Ctrl+.` and MCP `cancel_operation`. Moves cancel flag to `Base/` so App-layer code can check it. | Merged upstream |
 | 5 | `991353765a` | `Base/ProgressIndicator.h` | Wire `Base::OperationCancel::isSet()` into `ProgressIndicator::userBreak()` so any OCC operation that polls the progress indicator respects cancel. | Merged upstream |
@@ -110,6 +109,12 @@ and collapse the manifest when it lands.
 Patches 8 (Make Link) and 16–18 are expected to stay on the fork.
 
 ## Withdrawn patches
+
+Patch 1 (`a0954db1ce`, demote duplicate element-mapping warn to TRACE) was
+reverted on 2026-04-23 (commit `e556b28269`). Upstream commit `e39e36747c`
+(Apr 19 2026, "App: trace resolved duplicate element mappings") supersedes
+it more cleanly: removes the level-guard entirely and switches `FC_WARN` to
+`FC_TRACE` directly. Picked up at the next weekly rebase.
 
 Patch 2 (`c2843fc2dd`, `TopoShape::getElementTypeAndIndex` regex extension +
 `PartDesign::Boolean` `bakeInTransform`) was reverted on 2026-04-23 (commit
