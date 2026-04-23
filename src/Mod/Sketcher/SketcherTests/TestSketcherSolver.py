@@ -817,6 +817,82 @@ class TestSketcherSolver(unittest.TestCase):
         self.assertEqual(len(sketch1.ExternalGeometry), 0)
         self.assertEqual(sketch1.solve(), 0)
 
+    def testMissingExternalGeometryReferenceWithConstraint(self):
+        # When a constraint references an external geometry that later goes
+        # missing, the rebuildExternalGeometry() reporting loop must find
+        # the orphaned constraint (populates the 'referenced by' section of
+        # the log message). After the orphaned constraint is removed the
+        # sketch must solve cleanly again.
+        if "BUILD_PART_DESIGN" not in FreeCAD.__cmake__:
+            self.skipTest("PartDesign not built")
+        body = self.Doc.addObject("PartDesign::Body", "Body")
+        sketch = self.Doc.addObject("Sketcher::SketchObject", "Sketch")
+        CreateRectangleSketch(sketch, (0, 0), (30, 30))
+        pad = self.Doc.addObject("PartDesign::Pad", "Pad")
+        pad.Profile = sketch
+        body.addObject(sketch)
+        body.addObject(pad)
+        sketch1 = self.Doc.addObject("Sketcher::SketchObject", "Sketch1")
+        body.addObject(sketch1)
+        self.Doc.recompute()
+        sketch1.addGeometry(
+            Part.LineSegment(FreeCAD.Vector(5, 5, 0), FreeCAD.Vector(10, 10, 0))
+        )
+        # Edge4 on the Pad projects to a line (a vertical edge of the box);
+        # Edge1 would project to a point, making PointOnObject invalid.
+        sketch1.addExternal("Pad", "Edge4")
+        self.Doc.recompute()
+        # Constrain the line's start vertex to lie on the external edge (GeoId -3).
+        sketch1.addConstraint(Sketcher.Constraint("PointOnObject", 0, 1, -3))
+        self.Doc.recompute()
+        self.assertEqual(sketch1.solve(), 0)
+
+        self.Doc.removeObject("Pad")
+        self.Doc.recompute()
+
+        # Sketch survived, external refs pruned from the high-level list.
+        # The orphaned PointOnObject is silently ignored by the solver —
+        # matching the observed behavior of files with pre-existing broken
+        # refs (which is what makes the improved log message so valuable:
+        # nothing else surfaces the orphan).
+        self.assertIn(sketch1, self.Doc.Objects)
+        self.assertEqual(len(sketch1.ExternalGeometry), 0)
+        self.assertEqual(sketch1.solve(), 0)
+
+    def testMissingExternalGeometriesMultiple(self):
+        # rebuildExternalGeometry() iterates the full ExternalGeo list;
+        # verify geoIdx tracking stays correct when multiple refs go missing
+        # at once (off-by-one trap). Note: addExternal() calls to the same
+        # parent object group into one ExternalGeometry entry with multiple
+        # sub-elements, but each sub-element becomes a separate entry in
+        # the internal ExternalGeo list — and that's the list the loop
+        # iterates over.
+        if "BUILD_PART_DESIGN" not in FreeCAD.__cmake__:
+            self.skipTest("PartDesign not built")
+        body = self.Doc.addObject("PartDesign::Body", "Body")
+        sketch = self.Doc.addObject("Sketcher::SketchObject", "Sketch")
+        CreateRectangleSketch(sketch, (0, 0), (30, 30))
+        pad = self.Doc.addObject("PartDesign::Pad", "Pad")
+        pad.Profile = sketch
+        body.addObject(sketch)
+        body.addObject(pad)
+        sketch1 = self.Doc.addObject("Sketcher::SketchObject", "Sketch1")
+        body.addObject(sketch1)
+        self.Doc.recompute()
+        sketch1.addExternal("Pad", "Edge1")
+        sketch1.addExternal("Pad", "Edge4")
+        sketch1.addExternal("Pad", "Edge7")
+        self.Doc.recompute()
+        # 2 axes + 3 user externals in the internal list.
+        self.assertEqual(len(sketch1.ExternalGeo), 5)
+
+        self.Doc.removeObject("Pad")
+        self.Doc.recompute()
+
+        self.assertIn(sketch1, self.Doc.Objects)
+        self.assertEqual(len(sketch1.ExternalGeometry), 0)
+        self.assertEqual(sketch1.solve(), 0)
+
     def testSaveLoadWithExternalGeometryReference(self):
         if "BUILD_PARTDESIGN" in FreeCAD.__cmake__:
             # Arrange
