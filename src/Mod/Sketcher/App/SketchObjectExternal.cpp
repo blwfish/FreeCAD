@@ -118,6 +118,21 @@ static const char* sketchGeoTypeName(const Part::Geometry* geo)
     return "geometry";
 }
 
+// Format a sketch's identity for diagnostic messages as
+// `sketch "Label" (Doc#Name)` when the Label differs from the internal name,
+// otherwise just `sketch Doc#Name`. Keeps all external-geometry diagnostics
+// in this file in a consistent, user-recognizable form.
+static std::string sketchDiagName(const SketchObject* sk)
+{
+    const std::string fullName = sk->getFullName();
+    const char* label = sk->Label.getValue();
+    const char* name = sk->getNameInDocument();
+    if (label && *label && name && std::string(name) != label) {
+        return std::string("sketch \"") + label + "\" (" + fullName + ")";
+    }
+    return std::string("sketch ") + fullName;
+}
+
 // If `doc` has an object named `objName` with a non-empty Label, returns
 // `"Label" (objName)`; otherwise returns `'objName'`.
 static std::string formatObjectRef(const App::Document* doc, const std::string& objName)
@@ -1191,7 +1206,7 @@ int SketchObject::attachExternal(
 
     for(auto &key : externalGeoRef) {
         if (*itObj == Obj  &&  *itSub == SubName){
-            FC_ERR("Duplicate external element reference in " << getFullName() << ": " << key);
+            FC_ERR("Duplicate external element reference in " << sketchDiagName(this) << ": " << key);
             return -1;
         }
         // detach old reference
@@ -2680,19 +2695,19 @@ void SketchObject::rebuildExternalGeometry(std::optional<ExternalToAdd> extToAdd
 
         } catch (Base::Exception &e) {
             FC_ERR("Failed to project external geometry in "
-                   << getFullName() << ": " << key << std::endl << e.what());
+                   << sketchDiagName(this) << ": " << key << std::endl << e.what());
             continue;
         } catch (Standard_Failure &e) {
             FC_ERR("Failed to project external geometry in "
-                   << getFullName() << ": " << key << std::endl << e.GetMessageString());
+                   << sketchDiagName(this) << ": " << key << std::endl << e.GetMessageString());
             continue;
         } catch (std::exception &e) {
             FC_ERR("Failed to project external geometry in "
-                   << getFullName() << ": " << key << std::endl << e.what());
+                   << sketchDiagName(this) << ": " << key << std::endl << e.what());
             continue;
         } catch (...) {
             FC_ERR("Failed to project external geometry in "
-                   << getFullName() << ": " << key << std::endl << "Unknown exception");
+                   << sketchDiagName(this) << ": " << key << std::endl << "Unknown exception");
             continue;
         }
         if (geos.empty()) {
@@ -2700,7 +2715,7 @@ void SketchObject::rebuildExternalGeometry(std::optional<ExternalToAdd> extToAdd
         }
 
         if(!refSet.emplace(key).second) {
-            FC_WARN("Duplicated external reference in " << getFullName() << ": " << key);
+            FC_WARN("Duplicated external reference in " << sketchDiagName(this) << ": " << key);
             continue;
         }
 
@@ -2784,8 +2799,8 @@ void SketchObject::rebuildExternalGeometry(std::optional<ExternalToAdd> extToAdd
                     usedBy += c->typeToString() + " [" + std::to_string(ci) + "]";
                 }
             }
-            FC_ERR( "External geometry in sketch \"" << Label.getValue()
-                    << "\" (" << getFullName() << "): e" << egf->getId()
+            FC_ERR( "External geometry in " << sketchDiagName(this)
+                    << ": e" << egf->getId()
                     << " (" << sketchGeoTypeName(geo) << ")"
                     << " missing reference to "
                     << decodeExternalRef(egf->getRef(), getDocument())
@@ -2864,13 +2879,15 @@ void SketchObject::fixExternalGeometry(const std::vector<int> &geoIds) {
         std::string ref = egf->getRef();
         auto pos = ref.find('.');
         if(pos == std::string::npos) {
-            FC_ERR("Invalid external geometry reference (malformed, no object separator): " << ref);
+            FC_ERR("Invalid external geometry reference in " << sketchDiagName(this)
+                   << " (malformed, no object separator): " << ref);
             continue;
         }
         std::string objName = ref.substr(0,pos);
         auto obj = getDocument()->getObject(objName.c_str());
         if(!obj) {
-            FC_ERR("Cannot find object '" << objName << "' for external geometry reference");
+            FC_ERR("Cannot find object '" << objName << "' for external geometry reference in "
+                   << sketchDiagName(this));
             FC_LOG("  (raw ref: " << ref << ")");
             continue;
         }
@@ -2878,7 +2895,7 @@ void SketchObject::fixExternalGeometry(const std::vector<int> &geoIds) {
         auto elements = Part::Feature::getRelatedElements(obj,ref.c_str()+pos+1);
         if(!elements.size()) {
             FC_ERR("No related element found for " << decodeExternalRef(ref, getDocument())
-                   << " (topology may have changed)");
+                   << " in " << sketchDiagName(this) << " (topology may have changed)");
             FC_LOG("  (raw ref: " << ref << ")");
             continue;
         }
@@ -2978,7 +2995,7 @@ void SketchObject::updateGeometryRefs()
 
         if (egf->getId() < 0 && !egf->getRef().empty()) {
             // NOLINTNEXTLINE
-            FC_ERR("External geometry reference corrupted in " << getFullName()
+            FC_ERR("External geometry reference corrupted in " << sketchDiagName(this)
                    << " Please check.");
             // This could happen if someone saved the sketch containing
             // external geometries using some rogue releases during the
