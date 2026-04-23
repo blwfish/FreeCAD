@@ -787,6 +787,36 @@ class TestSketcherSolver(unittest.TestCase):
             self.assertEqual(len(hole.Shape.Edges), 17)
             self.assertEqual(len(sketch2.ExternalGeometry), 0)
 
+    def testMissingExternalGeometryReferenceAfterDelete(self):
+        # Regression test for rebuildExternalGeometry() missing-reference path
+        # in SketchObjectExternal.cpp. When an object referenced by external
+        # geometry is deleted, the sketch must survive, the error-reporting
+        # loop must run without crashing, and the high-level ExternalGeometry
+        # list must be cleaned up.
+        if "BUILD_PART_DESIGN" not in FreeCAD.__cmake__:
+            self.skipTest("PartDesign not built")
+        body = self.Doc.addObject("PartDesign::Body", "Body")
+        sketch = self.Doc.addObject("Sketcher::SketchObject", "Sketch")
+        CreateRectangleSketch(sketch, (0, 0), (30, 30))
+        pad = self.Doc.addObject("PartDesign::Pad", "Pad")
+        pad.Profile = sketch
+        body.addObject(sketch)
+        body.addObject(pad)
+        sketch1 = self.Doc.addObject("Sketcher::SketchObject", "Sketch1")
+        body.addObject(sketch1)
+        sketch1.Label = "Orphan Profile"
+        self.Doc.recompute()
+        sketch1.addExternal("Pad", "Edge1")
+        self.Doc.recompute()
+        self.assertEqual(len(sketch1.ExternalGeometry), 1)
+
+        self.Doc.removeObject("Pad")
+        self.Doc.recompute()
+
+        self.assertIn(sketch1, self.Doc.Objects)
+        self.assertEqual(len(sketch1.ExternalGeometry), 0)
+        self.assertEqual(sketch1.solve(), 0)
+
     def testSaveLoadWithExternalGeometryReference(self):
         if "BUILD_PARTDESIGN" in FreeCAD.__cmake__:
             # Arrange
