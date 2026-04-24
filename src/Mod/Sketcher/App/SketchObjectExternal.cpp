@@ -2786,8 +2786,14 @@ void SketchObject::rebuildExternalGeometry(std::optional<ExternalToAdd> extToAdd
             continue;
         }
         if(!refSet.count(egf->getRef())) {
-            // GeoId convention: ExternalGeo[i] → GeoId = -(i+1)
+            // GeoId convention: ExternalGeo[i] → GeoId = -(i+1).
+            // Sketcher UI naming: ExternalGeo[2..] maps to ExternalEdge1..
+            // (ExternalGeo[0], [1] are the H/V axes, which never carry a ref
+            // and short-circuit above, so here geoIdx is always >= 2).
             int brokenGeoId = -(geoIdx + 1);
+            std::string primaryName = (geoIdx >= 2)
+                ? "ExternalEdge" + std::to_string(geoIdx - 1)
+                : "e" + std::to_string(egf->getId());
             std::string usedBy;
             const auto& clist = Constraints.getValues();
             for (int ci = 0; ci < (int)clist.size(); ++ci) {
@@ -2800,11 +2806,12 @@ void SketchObject::rebuildExternalGeometry(std::optional<ExternalToAdd> extToAdd
                 }
             }
             FC_ERR( "External geometry in " << sketchDiagName(this)
-                    << ": e" << egf->getId()
+                    << ": " << primaryName
                     << " (" << sketchGeoTypeName(geo) << ")"
                     << " missing reference to "
                     << decodeExternalRef(egf->getRef(), getDocument())
-                    << (usedBy.empty() ? "" : " — referenced by: " + usedBy));
+                    << (usedBy.empty() ? "" : " — referenced by: " + usedBy)
+                    << " (e" << egf->getId() << ")");
             FC_LOG( "  (raw ref: " << egf->getRef() << ")");
             hasError = true;
             egf->setFlag(ExternalGeometryExtension::Missing,true);
@@ -2876,18 +2883,22 @@ void SketchObject::fixExternalGeometry(const std::vector<int> &geoIds) {
                 || !egf->testFlag(ExternalGeometryExtension::Missing)
                 || (idSet.size() && !idSet.count(GeoId)))
             continue;
+        // Sketcher UI name for this slot; same mapping as the diagnostic in
+        // rebuildExternalGeometry() — ExternalGeo[i] maps to ExternalEdge<i-1>
+        // for i >= 2 (and the loop starts at 2, so always valid here).
+        const std::string externalName = " [ExternalEdge" + std::to_string(i - 1) + "]";
         std::string ref = egf->getRef();
         auto pos = ref.find('.');
         if(pos == std::string::npos) {
             FC_ERR("Invalid external geometry reference in " << sketchDiagName(this)
-                   << " (malformed, no object separator): " << ref);
+                   << externalName << " (malformed, no object separator): " << ref);
             continue;
         }
         std::string objName = ref.substr(0,pos);
         auto obj = getDocument()->getObject(objName.c_str());
         if(!obj) {
             FC_ERR("Cannot find object '" << objName << "' for external geometry reference in "
-                   << sketchDiagName(this));
+                   << sketchDiagName(this) << externalName);
             FC_LOG("  (raw ref: " << ref << ")");
             continue;
         }
@@ -2895,7 +2906,8 @@ void SketchObject::fixExternalGeometry(const std::vector<int> &geoIds) {
         auto elements = Part::Feature::getRelatedElements(obj,ref.c_str()+pos+1);
         if(!elements.size()) {
             FC_ERR("No related element found for " << decodeExternalRef(ref, getDocument())
-                   << " in " << sketchDiagName(this) << " (topology may have changed)");
+                   << " in " << sketchDiagName(this) << externalName
+                   << " (topology may have changed)");
             FC_LOG("  (raw ref: " << ref << ")");
             continue;
         }

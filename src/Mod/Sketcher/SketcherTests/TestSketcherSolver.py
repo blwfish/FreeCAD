@@ -23,11 +23,44 @@
 # **************************************************************************
 
 
-import os, tempfile, unittest
+import os, re, sys, tempfile, unittest
 import FreeCAD, Part, Sketcher
 from Part import Precision
 
 App = FreeCAD
+
+
+# Matches ANSI SGR escape sequences that Base::ConsoleObserverStd writes
+# around colored error/warning output (e.g. \x1b[1;31m ... \x1b[0m).
+_ANSI_SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+class _CaptureStderr:
+    """Context manager that captures C++ stderr (Base::Console FC_ERR etc.)
+    by duplicating fd 2 to a temp file. On exit, `output` holds the captured
+    text with ANSI color codes stripped.
+
+    Required because FreeCAD's Python Console API exposes no way to attach
+    a custom observer — tests that need to assert on FC_ERR/FC_WARN content
+    must intercept at the fd level.
+    """
+
+    def __enter__(self):
+        self._tmp = tempfile.TemporaryFile(mode="w+b")
+        sys.stderr.flush()
+        self._old_fd = os.dup(2)
+        os.dup2(self._tmp.fileno(), 2)
+        return self
+
+    def __exit__(self, *exc):
+        sys.stderr.flush()
+        os.dup2(self._old_fd, 2)
+        os.close(self._old_fd)
+        self._tmp.seek(0)
+        raw = self._tmp.read().decode("utf-8", errors="replace")
+        self._tmp.close()
+        self.output = _ANSI_SGR_RE.sub("", raw)
+        return False
 
 xy_normal = FreeCAD.Vector(0, 0, 1)
 
@@ -836,11 +869,29 @@ class TestSketcherSolver(unittest.TestCase):
         self.assertEqual(len(sketch1.ExternalGeometry), 1)
 
         self.Doc.removeObject("Pad")
-        self.Doc.recompute()
+        with _CaptureStderr() as cap:
+            self.Doc.recompute()
 
         self.assertIn(sketch1, self.Doc.Objects)
         self.assertEqual(len(sketch1.ExternalGeometry), 0)
         self.assertEqual(sketch1.solve(), 0)
+
+        # Assertions on the improved log format (the user-facing point of
+        # the diagnostic — without this the message is unreadable).
+        log = cap.output
+        self.assertIn("missing reference to", log,
+                      f"expected missing-reference log; got:\n{log}")
+        # First (and only) real external entry is ExternalGeo[2] -> ExternalEdge1.
+        self.assertIn("ExternalEdge1", log,
+                      f"expected ExternalEdge1 tag; got:\n{log}")
+        # The sketch is named by its label when it differs from the internal name.
+        self.assertIn("Orphan Profile", log,
+                      f"expected sketch label in message; got:\n{log}")
+        # decodeExternalRef should have translated 'Pad.Edge1' to 'Edge 1 in ...Pad'.
+        self.assertIn("Pad", log, f"expected source object name; got:\n{log}")
+        # Internal e<id> tag is kept but moved to the end of the line.
+        self.assertRegex(log, r"\(e-?\d+\)",
+                         f"expected trailing (e<id>) tag; got:\n{log}")
 
     def testMissingExternalGeometryReferenceWithConstraint(self):
         # When a constraint references an external geometry that later goes
@@ -873,7 +924,8 @@ class TestSketcherSolver(unittest.TestCase):
         self.assertEqual(sketch1.solve(), 0)
 
         self.Doc.removeObject("Pad")
-        self.Doc.recompute()
+        with _CaptureStderr() as cap:
+            self.Doc.recompute()
 
         # Sketch survived, external refs pruned from the high-level list.
         # The orphaned PointOnObject is silently ignored by the solver —
@@ -883,6 +935,74 @@ class TestSketcherSolver(unittest.TestCase):
         self.assertIn(sketch1, self.Doc.Objects)
         self.assertEqual(len(sketch1.ExternalGeometry), 0)
         self.assertEqual(sketch1.solve(), 0)
+
+        # The diagnostic must enumerate the orphaned constraint so the user
+        # can find and delete it — that's what makes this path different
+        # from the plain 'delete without constraints' test.
+        log = cap.output
+        self.assertIn("ExternalEdge1", log,
+                      f"expected ExternalEdge1 tag; got:\n{log}")
+        self.assertIn("referenced by:", log,
+                      f"expected 'referenced by:' section; got:\n{log}")
+        self.assertIn("PointOnObject", log,
+                      f"expected orphaned PointOnObject constraint name; got:\n{log}")
+        # Index of the orphaned constraint within Constraints (0-based, the
+        # 1st and only constraint after the delete), rendered as [0].
+        self.assertRegex(log, r"PointOnObject \[0\]",
+                         f"expected constraint index [0]; got:\n{log}")
+
+    def testMissingExternalGeometryLogFormatForMultipleEntries(self):
+        # With more than one external entry going missing, each must be
+        # reported on its own line with a distinct ExternalEdge<N> tag so
+        # the user can jump to each row of the Elements panel independently.
+        # This pins down the ExternalGeo[i] -> ExternalEdge<i-1> mapping
+        # for i >= 2. Note: a single addExternal() call to a line edge can
+        # project to multiple ExternalGeo entries (the line plus shared
+        # endpoint vertices) — what matters here is that each projected
+        # entry gets its own distinct, contiguous ExternalEdge<N> tag.
+        if "BUILD_PART_DESIGN" not in FreeCAD.__cmake__:
+            self.skipTest("PartDesign not built")
+        body = self.Doc.addObject("PartDesign::Body", "Body")
+        sketch = self.Doc.addObject("Sketcher::SketchObject", "Sketch")
+        CreateRectangleSketch(sketch, (0, 0), (30, 30))
+        pad = self.Doc.addObject("PartDesign::Pad", "Pad")
+        pad.Profile = sketch
+        body.addObject(sketch)
+        body.addObject(pad)
+        sketch1 = self.Doc.addObject("Sketcher::SketchObject", "Sketch1")
+        body.addObject(sketch1)
+        self.Doc.recompute()
+
+        sketch1.addExternal("Pad", "Edge1")
+        sketch1.addExternal("Pad", "Edge4")
+        self.Doc.recompute()
+        # addExternal calls to the same parent collapse into one
+        # ExternalGeometry entry with multiple sub-elements — but the
+        # internal ExternalGeo list has a separate entry per projected
+        # sub-geometry (>= one per source edge).
+        self.assertGreaterEqual(len(sketch1.ExternalGeo), 4)  # 2 axes + >=2 projections
+
+        self.Doc.removeObject("Pad")
+        with _CaptureStderr() as cap:
+            self.Doc.recompute()
+
+        log = cap.output
+        # ExternalEdge<N> tags must be contiguous starting from 1, one per
+        # entry in the ExternalGeo list. Assert at least the first two
+        # (we don't pin the exact count because projection can yield a
+        # small extra vertex entry depending on topology).
+        self.assertIn("ExternalEdge1", log,
+                      f"expected ExternalEdge1; got:\n{log}")
+        self.assertIn("ExternalEdge2", log,
+                      f"expected ExternalEdge2; got:\n{log}")
+        # Each broken entry must get its own 'missing reference' line and
+        # its own trailing (e<id>) tag.
+        missing_count = log.count("missing reference to")
+        eid_count = len(re.findall(r"\(e-?\d+\)", log))
+        self.assertGreaterEqual(missing_count, 2,
+                                f"expected >= 2 missing-reference lines; got:\n{log}")
+        self.assertEqual(eid_count, missing_count,
+                         f"expected one (e<id>) per missing line; got:\n{log}")
 
     def testMissingExternalGeometriesMultiple(self):
         # rebuildExternalGeometry() iterates the full ExternalGeo list;
