@@ -190,10 +190,23 @@ test = [{ task = "test-debug" }]
 freecad = [{ task = "freecad-debug" }]
 
 build-debug = { cmd = ["cmake", "--build", "build/debug"]}
-build-release = { cmd = ["cmake", "--build", "build/release"]}
+build-release = { cmd = ["cmake", "--build", "build/release", "--parallel", "12"]}
 install-debug = { cmd = ["cmake", "--install", "build/debug"]}
 install-release = { cmd = ["cmake", "--install", "build/release"]}
 test-debug = { cmd = ["ctest", "--test-dir", "build/debug"]}
 test-release = { cmd = ["ctest", "--test-dir", "build/release"]}
 freecad-debug = "build/debug/bin/FreeCAD"
 freecad-release = "build/release/bin/FreeCAD"
+smoke-test-boolean = { cmd = ["build/release/bin/FreeCAD", "--console", "src/Mod/Part/parttests/run_boolean_smoke_test.py"]}
+
+# Fast pre-change baseline: run before editing to confirm clean state.
+# If this is red before your change, you're chasing pre-existing breakage.
+test-baseline = { depends-on = ["test-release", "smoke-test-boolean"] }
+
+# Pre-commit / pre-push gate: build + full ctest + smoke. Slow but thorough.
+# This is the one that would have caught patch 2.
+preflight = { depends-on = ["build-release", "test-release", "smoke-test-boolean"] }
+
+# Periodic upstream-history sweep across every patch on blw-fixes-v5.
+# Reports any patches that look like they re-introduce upstream-rejected work.
+patch-audit = { cmd = ["bash", "tools/blw/check-patch-history.sh"] }
