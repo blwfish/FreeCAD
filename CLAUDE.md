@@ -1,7 +1,7 @@
 # FreeCAD Local Build — blw-fixes-v7
 
 Branch: `blw-fixes-v7`
-Base: `weekly-2026.07.22` (commit `057d51f846`)
+Base: `weekly-2026.07.29` (commit `63af5cb2f3`)
 Version: `26.3.0-dev` (upstream renumbered from `1.2` to calendar-based `26.3` between 06.10 and 06.24; the dev series jumped 1.1 → 26.3, skipping 1.2)
 
 ## Build
@@ -55,8 +55,8 @@ Minimal personal-use patch set. Not intended for upstream contribution.
 
 | # | Commit | File(s) | Why we have it | Drop when |
 |---|--------|---------|----------------|-----------|
-| 3 | `2ffca4b2c3` | `Gui/MainWindow.cpp/h`, `Gui/OperationCancel.h`, `Part/Gui/TaskCheckGeometry.cpp/h` | Add `Ctrl+.` cancel for Check Geometry long-running operations. Introduces `Gui::OperationCancel` atomic flag. | Merged upstream |
-| 4 | `2ae1fd43d3` | `Base/OperationCancel.h`, `Gui/ApplicationPy.cpp/h`, `Part/App/TopoShape.cpp`, `TopoShapeExpansion.cpp`, `ThicknessProgressIndicator.h` | Make Thickness (`BRepOffsetAPI_MakeThickSolid`) cancellable via `Ctrl+.` and MCP `cancel_operation`. Moves cancel flag to `Base/` so App-layer code can check it. | Merged upstream |
-| 5 | `c48ef371c0` | `Part/App/ProgressIndicator.cpp` | Wire `Base::OperationCancel::isSet()` into `Part::ProgressIndicator::UserBreak()` so Ctrl+. and `Gui.cancelOperation()` cancel booleans, sweeps, and all other operations routed through `Part::ProgressIndicator`. | Merged upstream |
-| 8 | `3238cb844f` | `Gui/CommandLink.cpp` | Make Link: honor cross-document selections. Since upstream commit `3076ce66be`, `getCompleteSelection()` only returns the active document's selection, breaking the classic "select in doc A, switch to doc B, click Make Link" workflow. Iterates all open docs instead. Upstream issue #28681. | Upstream fixes #28681 |
-| 16 | `e90042417d` | `Gui/Stylesheets/defaults.qss` | Increase Text Document editor font to 14pt for HiDPI displays. Scoped to `Gui::TextDocumentEditorView` only. | Never (personal preference) |
+| 3 | `e53a4d6359` | `Gui/MainWindow.cpp/h`, `Gui/OperationCancel.h`, `Part/Gui/TaskCheckGeometry.cpp/h` | Add `Ctrl+.` cancel for Check Geometry long-running operations. Introduces `Gui::OperationCancel` atomic flag. | Merged upstream |
+| 4 | `a79b37a651` | `Base/OperationCancel.h`, `Gui/ApplicationPy.cpp/h`, `Part/App/TopoShape.cpp`, `TopoShapeExpansion.cpp`, `ThicknessProgressIndicator.h` | Make Thickness (`BRepOffsetAPI_MakeThickSolid`) cancellable via `Ctrl+.` and MCP `cancel_operation`. Moves cancel flag to `Base/` so App-layer code can check it. | Merged upstream |
+| 5 | `88967893cd` | `Part/App/ProgressIndicator.cpp` | Wire `Base::OperationCancel::isSet()` into `Part::ProgressIndicator::UserBreak()` so Ctrl+. and `Gui.cancelOperation()` cancel booleans, sweeps, and all other operations routed through `Part::ProgressIndicator`. | Merged upstream |
+| 8 | `b7c10850f8` | `Gui/CommandLink.cpp` | Make Link: honor cross-document selections. Since upstream commit `3076ce66be`, `getCompleteSelection()` only returns the active document's selection, breaking the classic "select in doc A, switch to doc B, click Make Link" workflow. Iterates all open docs instead. Upstream issue #28681. | Upstream fixes #28681 |
+| 16 | `39a5a9dd19` | `Gui/Stylesheets/defaults.qss` | Increase Text Document editor font to 14pt for HiDPI displays. Scoped to `Gui::TextDocumentEditorView` only. | Never (personal preference) |
