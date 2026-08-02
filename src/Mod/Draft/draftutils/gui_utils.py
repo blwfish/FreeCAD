@@ -573,6 +573,13 @@ def format_object(target, origin=None, ignore_construction=False):
                 continue
             val = getattr(matchrep, p)
             if isinstance(val, tuple):
+                if not val:
+                    # Some tuple-valued properties (e.g. MaterialList,
+                    # OverrideMaterialList on ViewProviderDraftLink) are
+                    # legitimately empty when no per-element overrides are
+                    # set -- nothing to copy, and val[0] below would raise
+                    # IndexError.
+                    continue
                 if len(val) != len_faces:
                     val = (val[0],)
             elif hasattr(val, "Value"):
