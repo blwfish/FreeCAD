@@ -126,6 +126,12 @@ def make_array(base_object, arg1, arg2, arg3, arg4=None, arg5=None, arg6=None, u
     if App.GuiUp:
         if use_link:
             ViewProviderDraftLink(new_obj.ViewObject)
+            # Without this, the array falls back to ViewParams'
+            # DefaultLinkColor (an internal, non-preference-page-exposed
+            # constant) instead of matching its own base object -- the
+            # non-link branch below already does this via format_object,
+            # this branch just never got the equivalent call.
+            gui_utils.format_object(new_obj, new_obj.Base)
         else:
             if new_obj.ArrayType == "circular":
                 new_obj.Proxy.execute(
